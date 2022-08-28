@@ -4,7 +4,11 @@ from django.shortcuts import render, redirect
 from django.contrib.auth import authenticate, login as django_login
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
+from django.utils import timezone
+from django.views.generic import ListView
+
 from . import models
+from . import forms
 from django.views.decorators.csrf import csrf_exempt
 
 # Create your views here.
@@ -19,7 +23,7 @@ def home(request, filter_category=""):
     categories = models.ReceiptCategory.objects.all()
 
     # receipts = models.Receipt.objects.all().filter(category=models.ReceiptCategory.objects.get(title="Борщ"))
-    receipts = models.Receipt.objects.all()
+    receipts = models.Receipt.objects.all()  # получаем все рецепты
     print(receipts)
     print(type(receipts))
     print(receipts[0].description)
@@ -46,19 +50,155 @@ def home(request, filter_category=""):
     return render(request, 'app_teacher/pages/home.html', context)
 
 
+class ReceiptListView(ListView):
+    queryset = models.Receipt.objects.all()
+    context_object_name = 'receipts'
+    paginate_by = 5
+    template_name = 'app_teacher/pages/receipt_list_class.html'
+
+
+def receipt_create(request):
+    if request.method == "POST":
+        title = request.POST.get("title", "")
+        print(f"title: {title}")
+        image = request.FILES.get("image", None)
+        print(f"image: {image}")
+
+        # request.POST - в нём лежат все типы данных, кроме файловых
+        # request.FILES - в нём файловые типы данных
+
+        form1 = forms.ReceiptCreateForm2(request.POST, request.FILES)
+        if form1.is_valid():
+            form1.save()
+            return redirect(reverse('receipt_create', args=()))
+
+        # models.Receipt.objects.create(
+        #     title=request.POST.get("title", ""),
+        #     image=request.FILES.get("image", None),
+        # )
+
+    context = {
+        "ReceiptCreateForm": forms.ReceiptCreateForm(),  # создание инстанса формы для создания рецепта
+        "ReceiptCreateForm2": forms.ReceiptCreateForm2()  # создание инстанса формы2 для создания рецепта
+    }
+    return render(request, 'app_teacher/pages/receipt_create.html', context)
+
+
 def receipt(request, receipt_id):
     if request.user.is_authenticated is False:
         return redirect(reverse('login', args=()))
     # return HttpResponse("<h1>HOME PAGE</h1>")
-    receipts = models.Receipt.objects.all().filter
-    receipt = get_object_or_404(models.Receipt, pk=receipt_id)
-    context = {"receipt": receipt}
+
+    # receipts = models.Receipt.objects.all().filter(title)
+
+    # receipt = get_object_or_404(models.Receipt, pk=receipt_id)
+    receipt = models.Receipt.objects.get(id=receipt_id)
+    # print(receipt)
+    # print(type(receipt))
+
+    comments = models.ReceiptComment.objects.all().filter(receipt=receipt).order_by('-time', '-comment_text')
+    # print(comments)
+    # print(type(comments))
+
+    # comments[0].time = timezone.now()
+    # comments[0].time.save()
+
+    likes = models.ReceiptRating.objects.all().filter(receipt=receipt)
+    # print(likes)
+    # print(type(likes))
+
+    obj1 = models.ReceiptRating.objects.filter(
+        user=request.user,
+        receipt=models.Receipt.objects.get(id=receipt_id),
+    )
+    if len(obj1) > 0:
+        obj1 = obj1[0]
+        print(obj1)
+        print(obj1.is_liked)
+        if obj1.is_liked is True:
+            is_my_like = True
+        else:
+            is_my_like = False
+    else:
+        is_my_like = False
+
+    context = {"receipt": receipt, "comments": comments, "likes": likes, "is_my_like": is_my_like}
     return render(request, 'app_teacher/pages/receipt.html', context)
 
 
-def login(request):
-    print(request.user.is_authenticated)
+def receipt_delete(request, receipt_id: int):
+    models.Receipt.objects.get(id=receipt_id).delete()
 
+    return redirect(reverse('', args=()))
+
+
+def receipt_comment_create(request, receipt_id: int):
+    if request.method == "POST":
+        comment_text = request.POST.get("comment_text", "")
+        if comment_text:
+            models.ReceiptComment.objects.create(
+                comment_text=comment_text,
+                user=request.user,
+                receipt=models.Receipt.objects.get(id=receipt_id),
+            )
+
+    return redirect(reverse('receipt', args=(receipt_id,)))
+
+
+def receipt_comment_delete(request, comment_id: int):
+    comment = models.ReceiptComment.objects.get(id=comment_id)  # Django ORM
+    # f"""
+    # SELECT *
+    # FROM ReceiptComment.db
+    # WHERE id = {comment_id}
+    # """
+    receipt_id = comment.receipt.id
+    comment_author_username = comment.user.username
+    print(comment_author_username)
+    # recept_author_username = comment.receipt.author.username
+    # print(recept_author_username)
+    print(comment_author_username)
+    print(comment.receipt.title)
+    print(comment.receipt.description)
+    print(receipt_id)
+    comment.delete()
+
+    return redirect(reverse('receipt', args=(receipt_id,)))
+
+
+def receipt_like_create(request, receipt_id: int):
+    # if request.method == "POST":
+    #     comment_text = request.POST.get("comment_text", "")
+    #     if comment_text:
+    #         models.ReceiptComment.objects.create(
+    #             comment_text=comment_text,
+    #             user=request.user,
+    #             receipt=models.Receipt.objects.get(id=receipt_id),
+    #         )
+
+    try:
+        obj = models.ReceiptRating.objects.filter(
+            user=request.user,
+            receipt=models.Receipt.objects.get(id=receipt_id),
+        )[0]
+        print(obj)
+        obj.is_liked = not obj.is_liked
+        obj.rating_value = 0
+        obj.save()
+    except Exception as error:
+        models.ReceiptRating.objects.create(
+            is_liked=True,
+            rating_value=0,
+            user=request.user,
+            receipt=models.Receipt.objects.get(id=receipt_id),
+        )
+
+    return redirect(reverse('receipt', args=(receipt_id,)))
+
+
+def login(request):
+    if request.user.is_authenticated:
+        return redirect(reverse('home', args=()))
     if request.method == "POST":
         username = request.POST.get("username", "")
         password = request.POST.get("password", "")
@@ -76,21 +216,51 @@ def login(request):
 
 
 def register(request):
-    print(request.user.is_authenticated)
-
     if request.method == "POST":
         username = request.POST.get("username", "")
         password = request.POST.get("password", "")
-        print(f'username: {username}')
-        print(f'password: {password}')
+        password2 = request.POST.get("password2", "")
+        first_name = request.POST.get("first_name", "")
+        last_name = request.POST.get("last_name", "")
+        email = request.POST.get("email", "")
 
-        user = authenticate(username=username, password=password)
+        success = True
+        # if not username or not password:
+        if username == "" or password == "":
+            print("имя пользователя или пароль пустые!")
+            success = False
+
+        if password != password2:
+            print("пароли не совпадают!")
+            success = False
+
+        user = User.objects.get(username=username)
         if user:
-            django_login(request, user)
-            print("success")
-        else:
-            print("fail")
-    context = {}
+            print("пользователь уже существует!")
+            success = False
+
+        if success:
+            # 1 способ
+            obj = User.objects.create(
+                username=username,
+                password=make_password(password),
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+
+            )
+            obj.save()
+
+            # 2 способ
+            # obj = User.objects.create(
+            #     username=username,
+            #     first_name=username,
+            #     last_name=username,
+            #     email=username,
+            # )
+            # obj.set_password(password)
+            # obj.save()
+    context = {"UserCreateForm": forms.UserCreateForm(), "123form": forms.ReceiptCommentCreateForm()}
     return render(request, 'app_teacher/pages/register.html', context)
 
 
@@ -100,6 +270,7 @@ def api_result(request):
         data = request.POST.get("value", "данные не пришли!")
         print(data)
         return HttpResponse(data)
+    # return HttpResponse("Hello world1111111111111111111111!")
     recept_queryset = models.Receipt.objects.all()
     recept_list = []
     for i in recept_queryset:
@@ -112,4 +283,4 @@ def api_result_id(request, recept_id):
         recept_queryset = models.Receipt.objects.get(id=recept_id)
         return JsonResponse({"recepts": recept_queryset.title})
     except Exception as error:
-        return JsonResponse({"recepts": "Recept not have"})
+        return JsonResponse({"recepts": "Recept not have!"})

@@ -1,6 +1,9 @@
 from django.contrib.auth.models import User
 from django.db import models
 from django.core.validators import FileExtensionValidator, MinValueValidator, MaxValueValidator
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from django.utils import timezone
 
 
 # Create your models here.
@@ -74,6 +77,7 @@ class Receipt(models.Model):
         help_text='<small class="text-muted">это наша заставка</small><hr><br>',
 
         validators=[FileExtensionValidator(['jpg', 'png'])],
+        upload_to='img/receipt',
         max_length=100,
     )
     time_to_cook = models.IntegerField(  # BigIntegerField SmallIntegerField PositiveIntegerField ...
@@ -91,7 +95,6 @@ class Receipt(models.Model):
     category = models.ManyToManyField(
         db_column='country_db_column',
         db_index=True,
-        db_tablespace='country_db_tablespace',
         error_messages=False,
         primary_key=False,
         unique_for_date=False,
@@ -166,76 +169,38 @@ class Receipt(models.Model):
         max_length=100,
     )
 
+    # is_show = models.BooleanField(
+    #     default=False,
+    #     # editable=
+    # )
+
     class Meta:
         app_label = 'app_teacher'
         ordering = ('title', 'description')
         verbose_name = 'Рецепт'
         verbose_name_plural = 'Рецепты'
 
-    def __str__(self):  # возвращает строкове представление объекта
+    def __str__(self):  # возвращает строковое представление объекта
         return f'{self.title}'
 
     def return_clear_data(self):
         title = self.title
         return str(title).strip() + " banana"
 
+    def get_rating(self):
+        ratings = ReceiptRating.objects.filter(
+            receipt=Receipt.objects.get(id=self.id),
+        )
 
-class ReceiptRating(models.Model):
-    rating_value = models.IntegerField(  # BigIntegerField SmallIntegerField PositiveIntegerField ...
-        primary_key=False,
-        unique=False,
-        editable=True,
-        blank=True,
-        null=True,
-        default="0",
-        verbose_name="Оценка",
-        help_text='<small class="text-muted">Оценка</small><hr><br>',
+        like_count = 0
+        dislike_count = 0
+        for rating in ratings:
+            if rating.is_liked:
+                like_count += 1
+            else:
+                dislike_count += 1
 
-        validators=[MinValueValidator(0), MaxValueValidator(10)],
-    )
-    user = models.ForeignKey(
-        error_messages=False,
-        primary_key=False,
-        unique_for_date=False,
-        unique_for_month=False,
-        unique_for_year=False,
-        unique=False,
-        editable=True,
-        blank=True,
-        null=True,
-        default=None,
-        verbose_name='Пользователь',
-        help_text='<small class="text-muted">Пользователь</small><hr><br>',
-
-        to=User,
-        on_delete=models.CASCADE,  # CASCADE SET_NULL DO_NOTHING
-    )
-    receipt = models.ForeignKey(
-        error_messages=False,
-        primary_key=False,
-        unique_for_date=False,
-        unique_for_month=False,
-        unique_for_year=False,
-        unique=False,
-        editable=True,
-        blank=True,
-        null=True,
-        default=None,
-        verbose_name='Рецепт',
-        help_text='<small class="text-muted">Рецепт</small><hr><br>',
-
-        to=Receipt,
-        on_delete=models.SET_NULL,  # CASCADE SET_NULL DO_NOTHING
-    )
-
-    class Meta:
-        app_label = 'app_teacher'
-        ordering = ('receipt',)
-        verbose_name = 'Рейтинг рецепта'
-        verbose_name_plural = 'Рейтинги рецептов'
-
-    def __str__(self):  # возвращает строкове представление объекта
-        return f'{self.receipt}'
+        return dict(total=ratings.count, like_count=like_count, dislike_count=dislike_count)
 
 
 class ReceiptComment(models.Model):
@@ -285,12 +250,129 @@ class ReceiptComment(models.Model):
         to=Receipt,
         on_delete=models.CASCADE,  # CASCADE SET_NULL DO_NOTHING
     )
+    time = models.DateTimeField(
+        primary_key=False,
+        unique=False,
+        editable=True,
+        blank=True,
+        null=True,
+        default=timezone.now,
+        verbose_name="время создания:",
+        help_text='<small class="text-muted">время создания</small><hr><br>',
+
+        auto_now_add=False,
+        auto_now=False,
+    )
+    create = models.DateTimeField(
+        primary_key=False,
+        unique=False,
+        editable=True,
+        blank=True,
+        null=True,
+        # default=timezone.now,
+        verbose_name="время создания:",
+        help_text='<small class="text-muted">время создания</small><hr><br>',
+
+        auto_now_add=True,  # автоматически добавляет время в момент создания объекта (нельзя редактировать)
+        auto_now=False,  # автоматически добавляет время в момент создания и изменения объекта (нельзя редактировать)
+    )
+    update = models.DateTimeField(
+        primary_key=False,
+        unique=False,
+        editable=True,
+        blank=True,
+        null=True,
+        # default=timezone.now,
+        verbose_name="время создания:",
+        help_text='<small class="text-muted">время создания</small><hr><br>',
+
+        auto_now_add=False,  # автоматически добавляет время в момент создания объекта (нельзя редактировать)
+        auto_now=True,  # автоматически добавляет время в момент создания и изменения объекта (нельзя редактировать)
+    )
 
     class Meta:
         app_label = 'app_teacher'
-        ordering = ('receipt',)
+        ordering = ('-time',)
         verbose_name = 'Комментарий к рецепту'
         verbose_name_plural = 'Комментарии к рецептам'
 
     def __str__(self):  # возвращает строкове представление объекта
-        return f'{self.comment_text[:50:1]}'
+        return f'{self.comment_text[:10:1]}'
+
+
+# сигнал на обновление времени в комментарии
+@receiver(post_save, sender=ReceiptComment)
+def update_comment_time(sender, instance, created, **kwargs):
+    if not created:  # если объект не создан впервые
+        obj = ReceiptComment.objects.get(id=instance.id)
+        if obj.time != timezone.now():
+            obj.time = timezone.now()
+            obj.save()
+
+
+class ReceiptRating(models.Model):
+    is_liked = models.BooleanField(
+        primary_key=False,
+        unique=False,
+        editable=True,
+        blank=True,
+        null=True,
+        default=False,
+        verbose_name="Лайк:",
+        help_text='<small class="text-muted">Лайк</small><hr><br>',
+    )
+    rating_value = models.IntegerField(  # BigIntegerField SmallIntegerField PositiveIntegerField ...
+        primary_key=False,
+        unique=False,
+        editable=True,
+        blank=True,
+        null=True,
+        default="0",
+        verbose_name="Оценка",
+        help_text='<small class="text-muted">Оценка</small><hr><br>',
+
+        validators=[MinValueValidator(0), MaxValueValidator(10)],
+    )
+    user = models.ForeignKey(
+        error_messages=False,
+        primary_key=False,
+        unique_for_date=False,
+        unique_for_month=False,
+        unique_for_year=False,
+        unique=False,
+        editable=True,
+        blank=True,
+        null=True,
+        default=None,
+        verbose_name='Пользователь',
+        help_text='<small class="text-muted">Пользователь</small><hr><br>',
+
+        to=User,
+        on_delete=models.CASCADE,  # CASCADE SET_NULL DO_NOTHING
+    )
+    receipt = models.ForeignKey(
+        error_messages=False,
+        primary_key=False,
+        unique_for_date=False,
+        unique_for_month=False,
+        unique_for_year=False,
+        unique=False,
+        editable=True,
+        blank=True,
+        null=True,
+        default=None,
+        verbose_name='Рецепт',
+        help_text='<small class="text-muted">Рецепт</small><hr><br>',
+
+        to=Receipt,
+        on_delete=models.CASCADE,  # CASCADE SET_NULL DO_NOTHING
+    )
+
+    class Meta:
+        app_label = 'app_teacher'
+        ordering = ('receipt',)
+        verbose_name = 'Рейтинг рецепта'
+        verbose_name_plural = 'Рейтинги рецептов'
+
+    def __str__(self):  # возвращает строкове представление объекта
+        return f'{self.receipt}'

@@ -1,0 +1,39 @@
+{% extends "app_teacher/components/base.html" %}
+{% load static %}
+{% load extras %}
+
+{% block head %}
+    <link rel="icon" href="{% static 'img/logo512.jpg' %}" type="image/jpg">
+{% endblock head %}
+
+{% block title %}
+    Создание рецепта
+{% endblock title %}
+
+{% block navbar %}
+    <div class="p-1 m-1">
+      {% include 'app_teacher/components/navbar.html' %}
+    </div>
+{% endblock navbar %}
+
+{% block main %}
+<main class="flex-shrink-0 bg-light">
+
+<div class="text-center">
+
+    <form action="{% url 'receipt_create' %}" method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ ReceiptCreateForm2 }}
+        <input type="submit" value="Submit">
+    </form>
+
+    <hr/>
+
+
+</main>
+{% endblock main %}
+
+
+{% block footer %}
+  {% include 'app_teacher/components/footer.html' %}
+{% endblock footer %}
